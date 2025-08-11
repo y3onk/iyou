@@ -1,0 +1,64 @@
+import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
+import 'signup_id_phone_screen.dart';
+
+class WelcomeScreen extends StatelessWidget {
+  const WelcomeScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppTheme.mint,
+      appBar: AppBar(
+        backgroundColor: AppTheme.mint, elevation: 0,
+        leading: IconButton(icon: const Icon(Icons.arrow_back_ios_new, color: Colors.black87),
+          onPressed: () => Navigator.pop(context)),
+        title: const Text('회원가입', style: TextStyle(color: Colors.black87)),
+        actions: const [
+          Padding(padding: EdgeInsets.symmetric(horizontal: 8), child: Icon(Icons.home_outlined, color: Colors.black87)),
+          Padding(padding: EdgeInsets.only(right: 12), child: Icon(Icons.menu, color: Colors.black87)),
+        ],
+      ),
+      body: Column(
+        children: [
+          const SizedBox(height: 16),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 24),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text('iyou에\n오신 것을 환영합니다.',
+                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800)),
+            ),
+          ),
+          const Spacer(),
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 32),
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: AppTheme.green, borderRadius: BorderRadius.circular(16),
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(.08), blurRadius: 18, offset: Offset(0, 8))],
+            ),
+            child: Column(children: const [
+              Text('iyou', style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w800)),
+              SizedBox(height: 8),
+              Text('아이유', style: TextStyle(color: Colors.white70)),
+            ]),
+          ),
+          const Spacer(),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+            child: SizedBox(
+              width: double.infinity, height: 56,
+              child: ElevatedButton.icon(
+                icon: const Text('🚀', style: TextStyle(fontSize: 18)),
+                label: const Text('iyou 시작하기', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                style: ElevatedButton.styleFrom(backgroundColor: AppTheme.green, foregroundColor: Colors.white),
+                onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SignupIdPhoneScreen())),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
