@@ -69,7 +69,7 @@ Widget build(BuildContext context) {
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(.15),
+                        color: Colors.black.withValues(alpha: 0.15),
                         blurRadius: 28, offset: const Offset(0, 14)),
                     ],
                   ),
@@ -83,7 +83,7 @@ Widget build(BuildContext context) {
                             fontSize: 34,
                             fontWeight: FontWeight.w900)),
                         SizedBox(height: 6),
-                        Text('아이유',
+                        Text('이유',
                           style: TextStyle(
                             color: Colors.white70, fontWeight: FontWeight.w600)),
                       ],
@@ -163,7 +163,7 @@ Widget build(BuildContext context) {
                     children: [
                       Container(
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(.7),
+                          color: Colors.white.withValues(alpha: 0.7),
                           borderRadius: BorderRadius.circular(999),
                         ),
                       ),
@@ -206,7 +206,7 @@ class _BadgeCircle extends StatelessWidget {
         shape: BoxShape.circle,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(.12),
+            color: Colors.black.withValues(alpha: 0.12),
             blurRadius: 14, offset: const Offset(0, 8)),
         ],
       ),
