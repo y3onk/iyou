@@ -112,7 +112,7 @@ class _AuthLandingScreenState extends State<AuthLandingScreen> {
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          const Text('본인 정보를 입력해주세요', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+          const Text('개인정보를 입력해주세요', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
           const SizedBox(height: 16),
 
           // 생년월일 + 주민번호
@@ -147,7 +147,7 @@ class _AuthLandingScreenState extends State<AuthLandingScreen> {
               onChanged: (v) { if (v.length == 7) FocusScope.of(context).requestFocus(phoneFn); setState(() {}); },
               decoration: InputDecoration(
                 labelText: '주민번호 뒤 7자리',
-                helperText: validRRN ? null : '형식 확인',
+                helperText: validRRN ? null : '예: 1234567',
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
               ),
             )),
@@ -175,7 +175,7 @@ class _AuthLandingScreenState extends State<AuthLandingScreen> {
               onChanged: (_) => setState(() {}),
               decoration: InputDecoration(
                 labelText: '010-0000-0000',
-                helperText: validPhone ? null : '붙여넣기도 자동 하이픈 처리',
+                helperText: validPhone ? null : '번호를 입력해주세요',
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
               ),
             )),
@@ -209,7 +209,7 @@ class _AuthLandingScreenState extends State<AuthLandingScreen> {
                 labelText: '인증번호 입력',
                 helperText: validOTP
                     ? (otpVerified ? '인증 완료' : '6자리 입력 후 인증하기를 눌러주세요')
-                    : '문자 수신 시 자동 채움(프로토타입)',
+                    : '인증번호를 입력해주세요',
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                 suffixIcon: otpVerified ? const Icon(Icons.check_circle, color: Colors.green) : null,
               ),
@@ -234,7 +234,7 @@ class _AuthLandingScreenState extends State<AuthLandingScreen> {
                     // TODO: 실제 서버 검증. (프로토타입: 통과 처리)
                     setState(() { otpVerified = true; });
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('인증 완료(프로토타입)')),
+                      const SnackBar(content: Text('인증 완료!')),
                     );
                   } : null,
                   style: ElevatedButton.styleFrom(backgroundColor: AppTheme.green, foregroundColor: Colors.white),
@@ -301,7 +301,7 @@ class _AuthLandingScreenState extends State<AuthLandingScreen> {
               onPressed: formReady ? () {
                 // TODO: 다음 단계
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('폼 유효성 통과! (프로토타입)')),
+                  const SnackBar(content: Text('회원 가입 완료!')),
                 );
               } : null,
               child: const Text('다음'),
