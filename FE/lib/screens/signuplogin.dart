@@ -1,3 +1,6 @@
+// lib/screens/signuplogin.dart
+// iyou - 회원가입 및 로그인 화면
+
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import 'welcome.dart';
@@ -98,7 +101,7 @@ class SignupIdPhoneScreen extends StatelessWidget {
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(12),
-              boxShadow: [BoxShadow(color: Colors.black.withOpacity(.06), blurRadius: 10, offset: const Offset(0, 6))],
+              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.6), blurRadius: 10, offset: const Offset(0, 6))],
             ),
             child: const Row(children: [
               Text('🪄  간편송금·결제', style: TextStyle(fontWeight: FontWeight.w700)),

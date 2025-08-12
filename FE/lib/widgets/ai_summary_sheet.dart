@@ -143,7 +143,7 @@ class AISummarySheet extends StatelessWidget {
   );
 
   Widget _rightsPanel() => _panel(
-    title: '이용자 권리',
+    title: '주의가 필요해요',
     child: Column(
       children: rights.map((r) => Container(
         margin: const EdgeInsets.only(bottom: 10),
