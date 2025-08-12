@@ -54,13 +54,9 @@ class _TermsDetailScreenState extends State<TermsDetailScreen> {
           .toList();
 
       if (serverClauses != null && serverClauses.isNotEmpty) {
-        setState(() {
-          _clauses = serverClauses;
-        });
+        setState(() => _clauses = serverClauses);
       } else {
-        setState(() {
-          _clauses = _parseKoreanClauses(content);
-        });
+        setState(() => _clauses = _parseKoreanClauses(content));
       }
     } catch (e) {
       setState(() => _detailError = '약관 본문 불러오기 실패: $e');
@@ -73,7 +69,6 @@ class _TermsDetailScreenState extends State<TermsDetailScreen> {
   Future<void> _openAISummary() async {
     setState(() => _loading = true);
     try {
-      // BE: /terms/{id}/summary 호출
       final data = await _api.get('/terms/${widget.termId}/summary');
 
       final docTitle = (data['title'] ?? widget.title) as String;
@@ -89,7 +84,7 @@ class _TermsDetailScreenState extends State<TermsDetailScreen> {
               .toList() ??
           <List<String>>[];
 
-      // 2) 구조화가 없으면 summary_text/summary 문자열을 문장 단위로 분해 (fallback)
+      // 2) 구조화가 없으면 summary 문자열을 문장 단위로 분해 (fallback)
       if (bullets.isEmpty) {
         final summaryText = (data['summary_text'] ?? data['summary'] ?? '') as String;
         final fallback = summaryText
@@ -149,7 +144,7 @@ class _TermsDetailScreenState extends State<TermsDetailScreen> {
               label: const Text('AI 요약',
                   style: TextStyle(color: Colors.black, fontWeight: FontWeight.w700)),
               style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF8D648)),
-              onPressed: _loading ? null : _openAISummary, // ✅ API 연동
+              onPressed: _loading ? null : _openAISummary,
             ),
           ),
         ],
@@ -217,31 +212,37 @@ class Clause {
   Clause(this.heading, this.body);
 }
 
+/// 섹션 본문이 비어 있을 때 대체 표시
+const String kEmptySectionBody = '…';
+
 List<Clause> _parseKoreanClauses(String raw) {
   final text = raw.replaceAll('\r\n', '\n').trim();
+  if (text.isEmpty) return [Clause('본문', '내용이 없습니다.')];
 
-  // 헤더 패턴 (항/호 제외)
-  const header =
-     r'(?:제\s*\d+\s*조(?:의\s*\d+)?(?!\s*(?:항|호))\s*(?:\([^)]+\)|[^\n]*)?|부칙(?:\s*\d+)?[^\n]*|별표\s*\d+[^\n]*)';
-
-  final re = RegExp(
-    '^($header)\\s*\\n?([\\s\\S]*?)(?=^$header\\s*\\n?|\\s*\$)',
+  // 줄 시작에서 섹션 헤더만 매칭:
+  //  - 제 n 조 (옵션: '의 m', 옵션: '(제목)')
+  //  - 부칙 / 부칙 n
+  //  - 별표 n
+  // * 항/호는 별도 배제하지 않지만, '조'를 강제해서 대부분 오탐 방지
+  final headerRe = RegExp(
+    r'^(?:\s*제\s*\d+\s*조(?:의\s*\d+)?(?:\s*\([^)]+\))?\s*|\s*부칙(?:\s*\d+)?\s*|\s*별표\s*\d+\s*)',
     multiLine: true,
   );
 
-  final matches = re.allMatches(text).toList();
-  final parsed = matches
-      .map((m) => Clause(
-            (m.group(1) ?? '').trim(),
-            (m.group(2) ?? '').trim(),
-          ))
-      // 너무 짧은 섹션은 걸러서 오탐 줄이기
-      .where((c) => c.body.replaceAll('\n', '').trim().length >= 5)
-      .toList();
+  final matches = headerRe.allMatches(text).toList();
+  if (matches.isEmpty) return [Clause('본문', text)];
 
-  if (parsed.isEmpty) {
-    final body = text.isEmpty ? '내용이 없습니다.' : text;
-    return [Clause('본문', body)];
+  final List<Clause> out = [];
+  for (var i = 0; i < matches.length; i++) {
+    final m = matches[i];
+    final startHeader = m.start;
+    final endHeader = m.end;
+    final nextStart = (i + 1 < matches.length) ? matches[i + 1].start : text.length;
+
+    final heading = text.substring(startHeader, endHeader).trim();
+    var body = text.substring(endHeader, nextStart).trim();
+    if (body.isEmpty) body = '…'; // 본문 없으면 대체 표기
+    out.add(Clause(heading, body));
   }
-  return parsed;
+  return out;
 }

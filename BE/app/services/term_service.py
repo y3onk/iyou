@@ -6,7 +6,10 @@ from app.models.term_summary import TermSummary
 
 # (선택) 첫 실행 편의를 위한 시드
 _FAKE = {
-    1: {"id": 1, "title": "서비스 이용약관", "content": "제1조(목적) ..."},
+    1: {"id": 1, "title": "서비스 이용약관", "content": "제1조(목적) 목적 내용...\n"
+      "제2조(용어의 정의) 정의 내용...\n"
+      "제3조(계약의 성립) 성립 내용...\n"
+      },
     2: {"id": 2, "title": "개인정보 처리방침", "content": "제1조(개인정보) ..."},
 }
 
