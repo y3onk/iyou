@@ -98,7 +98,7 @@ class SignupIdPhoneScreen extends StatelessWidget {
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(12),
-              boxShadow: [BoxShadow(color: Colors.black.withOpacity(.06), blurRadius: 10, offset: const Offset(0, 6))],
+              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.6), blurRadius: 10, offset: const Offset(0, 6))],
             ),
             child: const Row(children: [
               Text('🪄  간편송금·결제', style: TextStyle(fontWeight: FontWeight.w700)),
