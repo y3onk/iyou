@@ -1,17 +1,38 @@
+// lib/screens/detailterms.dart
+// iyou - 약관 상세 화면
+
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../widgets/ai_summary_sheet.dart';
 import '../core/api_locator.dart';
+import 'terms_model.dart'; // ← 새 enum/모델
+
+/// 약관 메타(백엔드 termId & 기본 제목)
+class TermsMeta {
+  final int id;
+  final String title;
+  const TermsMeta(this.id, this.title);
+}
+
+/// TODO: termId는 백엔드에 맞게 수정
+const Map<TermsType, TermsMeta> kTermsMeta = {
+  TermsType.uniqueId:       TermsMeta(1, '고유식별정보 처리 동의'),
+  TermsType.eFinanceService:TermsMeta(2, '전자금융서비스 이용약관'),
+  TermsType.standardEFT:    TermsMeta(3, '표준 전자금융거래 기본약관'),
+  TermsType.marketing:      TermsMeta(4, '마케팅 정보 수신 동의'),
+};
 
 class TermsDetailScreen extends StatefulWidget {
   const TermsDetailScreen({
     super.key,
-    this.termId = 1,
-    this.title = '표준 전자 금융거래 기본약관',
+    this.type,            // 새 경로: 약관 타입으로 진입
+    this.termId,          // 기존 경로: termId 직접 지정
+    this.title,           // 기존 경로: 제목 직접 지정
   });
 
-  final int termId;
-  final String title;
+  final TermsType? type;
+  final int? termId;
+  final String? title;
 
   @override
   State<TermsDetailScreen> createState() => _TermsDetailScreenState();
@@ -20,13 +41,25 @@ class TermsDetailScreen extends StatefulWidget {
 class _TermsDetailScreenState extends State<TermsDetailScreen> {
   final _api = provideApi();
 
-  // 요약 버튼 로딩
+  // 로딩 상태
   bool _loading = false;
-
-  // 상세 본문 로딩/에러/결과
   bool _loadingDetail = true;
   String? _detailError;
+
+  // 파싱된 조/본문
   List<Clause> _clauses = [];
+
+  int get _resolvedTermId {
+    if (widget.termId != null) return widget.termId!;
+    if (widget.type != null)   return kTermsMeta[widget.type]!.id;
+    return 1; // fallback
+  }
+
+  String get _resolvedTitle {
+    if (widget.title != null && widget.title!.trim().isNotEmpty) return widget.title!;
+    if (widget.type != null) return kTermsMeta[widget.type]!.title;
+    return '약관 상세';
+  }
 
   @override
   void initState() {
@@ -41,14 +74,15 @@ class _TermsDetailScreenState extends State<TermsDetailScreen> {
       _detailError = null;
     });
     try {
-      final data = await _api.get('/terms/${widget.termId}');
+      final id = _resolvedTermId;
+      final data = await _api.get('/terms/$id');
       final content = (data['content'] ?? '') as String;
 
-      // (선택) BE가 나중에 clauses를 내려주면 우선 사용
+      // (선택) BE가 clauses 배열을 주면 그걸 우선 사용
       final serverClauses = (data['clauses'] as List?)
           ?.map((e) => Clause(
                 (e['heading'] ?? '').toString(),
-                (e['body'] ?? '').toString(),
+                (e['body'] ?? e['content'] ?? '').toString(),
               ))
           .where((c) => c.heading.isNotEmpty || c.body.isNotEmpty)
           .toList();
@@ -65,26 +99,26 @@ class _TermsDetailScreenState extends State<TermsDetailScreen> {
     }
   }
 
-  /// AI 요약 모달 열기
+  /// AI 요약 모달
   Future<void> _openAISummary() async {
     setState(() => _loading = true);
     try {
-      final data = await _api.get('/terms/${widget.termId}/summary');
+      final id = _resolvedTermId;
+      final data = await _api.get('/terms/$id/summary');
 
-      final docTitle = (data['title'] ?? widget.title) as String;
+      final docTitle = (data['title'] ?? _resolvedTitle) as String;
 
-      // 1) 서버가 구조화 응답을 주면 그대로 사용
       final bullets = (data['bullets'] as List?)?.cast<String>() ?? <String>[];
-      final rights = (data['rights'] as List?)?.cast<String>() ?? <String>[];
+      final rights  = (data['rights']  as List?)?.cast<String>() ?? <String>[];
       final glossary = (data['glossary'] as List?)
               ?.map((e) => [
                     (e['term'] ?? '').toString(),
                     (e['def'] ?? e['defn'] ?? '').toString()
                   ])
+              .cast<List<String>>()
               .toList() ??
           <List<String>>[];
 
-      // 2) 구조화가 없으면 summary 문자열을 문장 단위로 분해 (fallback)
       if (bullets.isEmpty) {
         final summaryText = (data['summary_text'] ?? data['summary'] ?? '') as String;
         final fallback = summaryText
@@ -121,7 +155,7 @@ class _TermsDetailScreenState extends State<TermsDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final title = widget.title;
+    final title = _resolvedTitle;
 
     return Scaffold(
       backgroundColor: const Color(0xFF07131B),
@@ -138,11 +172,9 @@ class _TermsDetailScreenState extends State<TermsDetailScreen> {
             padding: const EdgeInsets.only(right: 12),
             child: ElevatedButton.icon(
               icon: _loading
-                  ? const SizedBox(
-                      width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
                   : const Icon(Icons.auto_awesome, color: Colors.black),
-              label: const Text('AI 요약',
-                  style: TextStyle(color: Colors.black, fontWeight: FontWeight.w700)),
+              label: const Text('AI 요약', style: TextStyle(color: Colors.black, fontWeight: FontWeight.w700)),
               style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF8D648)),
               onPressed: _loading ? null : _openAISummary,
             ),
@@ -167,16 +199,13 @@ class _TermsDetailScreenState extends State<TermsDetailScreen> {
 
   Widget _heroCard(String title) => Container(
         padding: const EdgeInsets.all(16),
-        decoration:
-            BoxDecoration(color: AppTheme.cardDark, borderRadius: BorderRadius.circular(16)),
+        decoration: BoxDecoration(color: AppTheme.cardDark, borderRadius: BorderRadius.circular(16)),
         child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           const Icon(Icons.push_pin, color: Color(0xFFF8D648)),
           const SizedBox(width: 10),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(title,
-                  style: const TextStyle(
-                      color: Colors.white, fontWeight: FontWeight.w800, fontSize: 18)),
+              Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 18)),
               const SizedBox(height: 6),
               const Text('우상단 AI 요약 버튼을 눌러 간편하게 핵심 내용을 확인해보세요',
                   style: TextStyle(color: Colors.white70)),
@@ -194,16 +223,14 @@ class _TermsDetailScreenState extends State<TermsDetailScreen> {
           border: Border.all(color: Colors.white10),
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(h,
-              style: const TextStyle(
-                  color: Color(0xFFF8D648), fontWeight: FontWeight.w800, fontSize: 16)),
+          Text(h, style: const TextStyle(color: Color(0xFFF8D648), fontWeight: FontWeight.w800, fontSize: 16)),
           const SizedBox(height: 8),
           Text(body, style: const TextStyle(color: Colors.white, height: 1.5)),
         ]),
       );
 }
 
-/// ----- 조 파서 -----
+/// ----- 조 파서 (존치) -----
 /// 항/호는 제외하고, '제n조', '제n조의m', '부칙', '별표n'을 섹션 헤더로 간주.
 /// 실패하면 통짜 본문으로 반환.
 class Clause {
@@ -219,11 +246,6 @@ List<Clause> _parseKoreanClauses(String raw) {
   final text = raw.replaceAll('\r\n', '\n').trim();
   if (text.isEmpty) return [Clause('본문', '내용이 없습니다.')];
 
-  // 줄 시작에서 섹션 헤더만 매칭:
-  //  - 제 n 조 (옵션: '의 m', 옵션: '(제목)')
-  //  - 부칙 / 부칙 n
-  //  - 별표 n
-  // * 항/호는 별도 배제하지 않지만, '조'를 강제해서 대부분 오탐 방지
   final headerRe = RegExp(
     r'^(?:\s*제\s*\d+\s*조(?:의\s*\d+)?(?:\s*\([^)]+\))?\s*|\s*부칙(?:\s*\d+)?\s*|\s*별표\s*\d+\s*)',
     multiLine: true,
@@ -241,7 +263,7 @@ List<Clause> _parseKoreanClauses(String raw) {
 
     final heading = text.substring(startHeader, endHeader).trim();
     var body = text.substring(endHeader, nextStart).trim();
-    if (body.isEmpty) body = '…'; // 본문 없으면 대체 표기
+    if (body.isEmpty) body = kEmptySectionBody;
     out.add(Clause(heading, body));
   }
   return out;

@@ -1,3 +1,6 @@
+// lib/screens/signuplogin.dart
+// iyou - 회원가입 및 로그인 화면
+
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import 'welcome.dart';
