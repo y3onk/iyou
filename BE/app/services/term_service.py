@@ -1,5 +1,6 @@
 # app/services/term_service.py
 from typing import List, Dict, Any, Optional
+import re
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from app.db.session import SessionLocal
@@ -12,8 +13,6 @@ _FAKE = {
     2: {"id": 2, "title": "개인정보 처리방침", "content": "제1조(개인정보) ..."},
 }
 
-_PROVIDER_NAME = "fake-provider"
-_PROVIDER_VER  = "0.0.1"
 
 def _seed_if_empty(db: Session):
     if db.query(Term).count() == 0:
@@ -27,22 +26,32 @@ def _seed_if_empty(db: Session):
 def get_all_terms(only_active: bool = True) -> List[Dict[str, Any]]:
     with SessionLocal() as db:
         _seed_if_empty(db)
+        if only_active and hasattr(Term, "is_active"):
+            q = q.filter(Term.is_active == 1)
         rows = db.query(Term.id, Term.title).order_by(Term.id.desc()).all()
         return [{"id": r[0], "title": r[1]} for r in rows]
 
 def get_term_by_id(term_id: int, only_active: bool = True) -> Optional[Dict[str, Any]]:
     with SessionLocal() as db:
         _seed_if_empty(db)
-        row = db.query(Term).filter(Term.id == term_id).first()
+        q= db.query(Term).filter(Term.id == term_id)
+        if only_active and hasattr(Term, "is_active"):
+            q = q.filter(Term.is_active == 1)
+        row = q.first()
         if not row:
             return None
         return {"id": row.id, "title": row.title, "content": row.content}
 
-def _fake_summarize(title: str) -> str:
-    # 실제 모델 준비 전까지 임시 요약
-    return f"이것은 '{title}'의 AI 요약본입니다. 사용자의 권리와 서비스의 목적을 명확히 합니다."
 
 def get_term_summary_by_id(term_id: int) -> Optional[Dict[str, Any]]:
+    print("### THIS FUNCTION IS RUNNING ###")
+
+    """
+    term_summaries에서 이미 생성된 요약만 조회한다.
+    - Term.revision_version이 있으면 해당 버전으로 필터
+    - 없으면 term_id 기준 최신(created_at DESC) 1건
+    - 없으면 None 반환 (라우터에서 404 처리)
+    """
     with SessionLocal() as db:
         _seed_if_empty(db)
 
@@ -50,37 +59,32 @@ def get_term_summary_by_id(term_id: int) -> Optional[Dict[str, Any]]:
         if not term:
             return None
 
-        # 1) 캐시 조회 (동일 모델/버전)
-        cached = (
-            db.query(TermSummary)
-            .filter(
-                TermSummary.term_id == term_id,
-                TermSummary.model_name == _PROVIDER_NAME,
-                TermSummary.model_version == _PROVIDER_VER,
-            )
-            .order_by(TermSummary.created_at.desc())
-            .first()
-        )
-        if cached:
-            return {"id": term.id, "title": f"{term.title} (요약)", "summary": cached.summary_text or ""}
+        # Term에 revision_version 필드가 있으면 그 값으로 요약 선택
+        rev = getattr(term, "revision_version", None)
 
-        # 2) 캐시 미스 → 요약 생성
-        summary_text = _fake_summarize(term.title)
+        q = db.query(TermSummary).filter(TermSummary.term_id == term_id)
+        if rev is not None:
+            q = q.filter(TermSummary.revision_version == rev)
 
-        # 3) 저장
-        row = TermSummary(
-            term_id=term.id,
-            model_name=_PROVIDER_NAME,
-            model_version=_PROVIDER_VER,
-            summary_text=summary_text,
-        )
-        db.add(row)
-        db.commit()
-        db.refresh(row)
+        row = q.order_by(TermSummary.created_at.desc()).first()
+        if row is None:
+            return None
+        
+        # keywords 문자열 → 리스트 변환
+        raw_keywords = (getattr(row, "keywords", "") or "").strip()
+        keywords_list = [
+            k.strip() for k in re.split(r"[,\n;/|、，·•]", raw_keywords) if k.strip()
+        ]
 
-        # 4) 응답
-        return {"id": term.id, "title": f"{term.title} (요약)", "summary": summary_text}
-
+        print("KW from DB:", row.keywords)
+        return {
+            "id": term.id,
+            "title": f"{term.title} (요약)",
+            "summary": row.summary_text or "",
+            "revision_version": getattr(row, "revision_version", None),
+            "keywords": keywords_list,
+        }
+    
 # -----------------------
 # Admin: 검색/목록, 생성, 수정, 삭제
 # -----------------------

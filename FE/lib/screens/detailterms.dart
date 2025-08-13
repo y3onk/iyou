@@ -5,7 +5,8 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../widgets/ai_summary_sheet.dart';
 import '../core/api_locator.dart';
-import 'terms_model.dart'; // ← 새 enum/모델
+import 'dart:convert';
+import 'terms_model.dart'; 
 
 /// 약관 메타(백엔드 termId & 기본 제목)
 class TermsMeta {
@@ -14,20 +15,20 @@ class TermsMeta {
   const TermsMeta(this.id, this.title);
 }
 
-/// TODO: termId는 백엔드에 맞게 수정
+// 프로토타입 매핑
 const Map<TermsType, TermsMeta> kTermsMeta = {
-  TermsType.uniqueId:       TermsMeta(1, '고유식별정보 처리 동의'),
-  TermsType.eFinanceService:TermsMeta(2, '전자금융서비스 이용약관'),
-  TermsType.standardEFT:    TermsMeta(3, '표준 전자금융거래 기본약관'),
-  TermsType.marketing:      TermsMeta(4, '마케팅 정보 수신 동의'),
+  TermsType.uniqueId:        TermsMeta(1, '고유식별정보 처리 동의'),
+  TermsType.eFinanceService: TermsMeta(2, '전자금융서비스 이용약관'),
+  TermsType.standardEFT:     TermsMeta(3, '표준 전자금융거래 기본약관'),
+  TermsType.marketing:       TermsMeta(4, '마케팅 정보 수신 동의'),
 };
 
 class TermsDetailScreen extends StatefulWidget {
   const TermsDetailScreen({
     super.key,
-    this.type,            // 새 경로: 약관 타입으로 진입
-    this.termId,          // 기존 경로: termId 직접 지정
-    this.title,           // 기존 경로: 제목 직접 지정
+    this.type,   // 새 경로: 약관 타입으로 진입
+    this.termId, // 기존 경로: termId 직접 지정
+    this.title,  // 기존 경로: 제목 직접 지정
   });
 
   final TermsType? type;
@@ -41,17 +42,15 @@ class TermsDetailScreen extends StatefulWidget {
 class _TermsDetailScreenState extends State<TermsDetailScreen> {
   final _api = provideApi();
 
-  // 로딩 상태
   bool _loading = false;
   bool _loadingDetail = true;
   String? _detailError;
 
-  // 파싱된 조/본문
   List<Clause> _clauses = [];
 
   int get _resolvedTermId {
     if (widget.termId != null) return widget.termId!;
-    if (widget.type != null)   return kTermsMeta[widget.type]!.id;
+    if (widget.type != null) return kTermsMeta[widget.type]!.id;
     return 1; // fallback
   }
 
@@ -78,7 +77,7 @@ class _TermsDetailScreenState extends State<TermsDetailScreen> {
       final data = await _api.get('/public/terms/$id');
       final content = (data['content'] ?? '') as String;
 
-      // (선택) BE가 clauses 배열을 주면 그걸 우선 사용
+      // (선택) 서버가 clauses 배열을 주면 우선 사용
       final serverClauses = (data['clauses'] as List?)
           ?.map((e) => Clause(
                 (e['heading'] ?? '').toString(),
@@ -108,17 +107,20 @@ class _TermsDetailScreenState extends State<TermsDetailScreen> {
 
       final docTitle = (data['title'] ?? _resolvedTitle) as String;
 
+      // 핵심 내용 bullets
       final bullets = (data['bullets'] as List?)?.cast<String>() ?? <String>[];
-      final rights  = (data['rights']  as List?)?.cast<String>() ?? <String>[];
-      final glossary = (data['glossary'] as List?)
-              ?.map((e) => [
-                    (e['term'] ?? '').toString(),
-                    (e['def'] ?? e['defn'] ?? '').toString()
-                  ])
-              .cast<List<String>>()
-              .toList() ??
-          <List<String>>[];
 
+      // 주의가 필요해요: rights (비어 있으면 UI에서 숨김)
+      final rights = (data['rights'] as List?)?.cast<String>() ?? <String>[];
+
+      // 핵심 용어: 백엔드 keywords → glossary로 매핑
+      // 백엔드가 문자열("a,b\nc")이면 분리, 리스트면 그대로 사용
+      
+      final keywordList = (data['keywords'] as List?)?.cast<String>() ?? <String>[];
+final glossary = keywordList.map((t) => [t, '']).toList();
+
+
+      // bullets가 비면 summary_text/summary를 라인 분해해서 대체
       if (bullets.isEmpty) {
         final summaryText = (data['summary_text'] ?? data['summary'] ?? '') as String;
         final fallback = summaryText
@@ -139,8 +141,8 @@ class _TermsDetailScreenState extends State<TermsDetailScreen> {
           summaryBullets: bullets.isEmpty
               ? const ['요약 결과가 비어 있습니다. (모델/데이터 확인 필요)']
               : bullets,
-          glossary: glossary,
-          rights: rights,
+          glossary: glossary, // 핵심 용어
+          rights: rights,     // 비어 있으면 AISummarySheet에서 섹션 숨김
         ),
       );
     } catch (e) {
@@ -230,7 +232,7 @@ class _TermsDetailScreenState extends State<TermsDetailScreen> {
       );
 }
 
-/// ----- 조 파서 (존치) -----
+/// ----- 조 파서 -----
 /// 항/호는 제외하고, '제n조', '제n조의m', '부칙', '별표n'을 섹션 헤더로 간주.
 /// 실패하면 통짜 본문으로 반환.
 class Clause {
@@ -239,7 +241,6 @@ class Clause {
   Clause(this.heading, this.body);
 }
 
-/// 섹션 본문이 비어 있을 때 대체 표시
 const String kEmptySectionBody = '…';
 
 List<Clause> _parseKoreanClauses(String raw) {
