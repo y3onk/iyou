@@ -1,5 +1,6 @@
 # app/schemas/term.py
 
+from typing import Optional, List
 from pydantic import BaseModel
 
 class TermInList(BaseModel):
@@ -15,3 +16,5 @@ class TermSummary(BaseModel):
     id: int
     title: str
     summary: str
+    revision_version: Optional[str] = None
+    keywords: Optional[List[str]] = None

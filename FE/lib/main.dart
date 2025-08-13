@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:iyou_demo/screens/signuplogin.dart';
 import 'theme/app_theme.dart';
 import 'screens/splash.dart';
 import 'screens/admin_landing.dart';
