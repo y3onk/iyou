@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import 'welcome.dart';
 
+const bool kAdminMode = bool.fromEnvironment('ADMIN_MODE', defaultValue: false);
+
 class SignupIdPhoneScreen extends StatelessWidget {
   const SignupIdPhoneScreen({super.key});
 
@@ -20,8 +22,14 @@ class SignupIdPhoneScreen extends StatelessWidget {
           SizedBox(width: 8),
           Text('iyou', style: TextStyle(color: Colors.black87, fontWeight: FontWeight.w800)),
         ]),
-        actions: const [
-          Padding(
+        actions: [
+          if (kAdminMode)
+            TextButton(
+              // 관리자 모드일 때만 보이는 버튼
+              onPressed: () => Navigator.pushReplacementNamed(context, '/admin'),
+              child: const Text('관리자 모드', style: TextStyle(color: Colors.black87, fontWeight: FontWeight.w700)),
+            ),
+          const Padding(
             padding: EdgeInsets.only(right: 12),
             child: Icon(Icons.menu, color: Colors.black87),
           )
