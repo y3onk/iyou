@@ -198,13 +198,6 @@ if __name__ == "__main__":
     logging.info(f"DB 경로: {DB_PATH}")
     logging.info(f"모델 경로: {MODEL_PATH}")
 
-    # db_url = os.getenv("DATABASE_URL")
-    # if not db_url:
-    #     raise ValueError(".env 파일에 DATABASE_URL이 설정되지 않았습니다.")
-    # DB_PATH = os.path.join(PROJECT_ROOT, db_url) 
-
-    #MODEL_PATH = os.path.join(SCRIPT_DIR, "kobert_summarization_model.pth")
-
     parser = argparse.ArgumentParser(description="약관 문서를 요약하고 키워드를 추출하여 DB에 저장하는 배치 스크립트")
     parser.add_argument(
         "--ids",
