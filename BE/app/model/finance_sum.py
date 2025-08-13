@@ -15,6 +15,7 @@ from tqdm import tqdm
 import logging
 import argparse # [추가] 커맨드 라인 인자 처리를 위한 라이브러리
 from dotenv import load_dotenv
+import json
 #load_dotenv()
 
 # --- 기본 로깅 설정 ---
@@ -63,26 +64,48 @@ def extract_keywords(sentences_list: list[str], tagger) -> list[str]:
     return list(Counter(meaningful_nouns).keys())
 
 # --- GPT 요약 생성 ---
-def generate_gpt_summary(key_sentences: list[str], keywords: list[str], client: OpenAI) -> str:
+def generate_gpt_summary(key_sentences: list[str], raw_keywords: list[str], client: OpenAI) -> str:
     if not key_sentences: return ""
-    prompt = f"""# 지시문
-당신은 금융 및 법률 약관 전문가입니다. 1차 AI가 원문에서 추출한 아래 '핵심 문장'과 '핵심 키워드'를 바탕으로, 최종 사용자가 이해하기 쉬운 3문장 이내의 완결된 요약문을 생성해주세요.
+    prompt = f"""# 지시사항
+당신은 금융 및 법률 약관을 분석하고 요약하는 최고 수준의 AI 전문가입니다.
+1차 AI가 추출한 '핵심 문장'과 '초벌 키워드'가 주어집니다.
+당신의 임무는 다음 두 가지를 **JSON 형식**으로 출력하는 것입니다.
+
+1.  **`refined_keywords`**: '핵심 문장'의 문맥을 깊이 이해하여, '초벌 키워드' 중에서 정말로 중요하고 의미 있는 단어만 필터링한 키워드 리스트. 불필요하거나, 형태소가 이상하거나, 중요하지 않은 단어는 반드시 제거해야 합니다.
+2.  **`summary_text`**: '핵심 문장'의 내용만을 기반으로 하고, 당신이 방금 정제한 `refined_keywords`를 자연스럽게 포함하여, 최종 사용자가 이해하기 쉬운 3문장 이내의 완결된 요약문.
+
 # 제약 조건
-- 반드시 '핵심 문장'에 있는 내용만을 기반으로 요약해야 합니다.
-- '핵심 키워드'가 자연스럽게 요약문에 포함되도록 하세요.
-- 의미를 절대 변경하거나 없는 내용을 추가해서는 안 됩니다.
-- 원문의 전문적인 어휘를 최대한 유지하되, 문법적으로 자연스럽게 연결해주세요.
-# 핵심 문장
+- `summary_text`는 '핵심 문장'에 없는 내용을 절대 추가해서는 안 됩니다.
+- 원문의 전문적인 어휘와 의미를 최대한 유지해야 합니다.
+- 최종 출력은 반드시 아래와 같은 JSON 형식이어야 합니다.
+
+# 입력 데이터
+## 핵심 문장
 {'- ' + '\n- '.join(key_sentences)}
-# 핵심 키워드
-{', '.join(keywords)}
-# 최종 요약문 (3문장 이내):"""
+
+## 초벌 키워드
+{', '.join(raw_keywords)}
+
+# 출력 (JSON 형식):
+"""
     try:
-        completion = client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": prompt}])
-        return completion.choices[0].message.content.strip()
+        completion = client.chat.completions.create(
+            model="gpt-4o",
+            response_format={"type": "json_object"}, # JSON 출력 모드 사용
+            messages=[{"role": "user", "content": prompt}]
+        )
+        result_json = json.loads(completion.choices[0].message.content)
+        
+        refined_keywords = result_json.get("refined_keywords", raw_keywords)
+        summary_text = result_json.get("summary_text", " ".join(key_sentences))
+        
+        return summary_text, refined_keywords
+
     except Exception as e:
-        logging.error(f"GPT API 호출 오류: {e}")
-        return " ".join(key_sentences)
+        logging.error(f"GPT API 호출 또는 JSON 파싱 오류: {e}")
+        # 오류 발생 시, 정제 없이 기존 결과 반환
+        return " ".join(key_sentences), raw_keywords
+        
         
     
 # --- [수정됨] DB 연동 함수 ---
@@ -231,7 +254,7 @@ if __name__ == "__main__":
         for term_id, title, content in tqdm(terms_to_process, desc="전체 약관 요약 처리 중"):
             key_sentences = extract_key_sentences(content, summarization_model, tokenizer, device, top_n=3)
             keywords = extract_keywords(key_sentences, okt_tagger)
-            final_summary = generate_gpt_summary(key_sentences, keywords, gpt_client)
-            save_summary_to_db(DB_PATH, term_id, final_summary, keywords)
+            final_summary, refined_keywords = generate_gpt_summary(key_sentences, keywords, gpt_client)
+            save_summary_to_db(DB_PATH, term_id, final_summary, refined_keywords)
 
     logging.info("🎉 작업이 성공적으로 완료되었습니다.")
