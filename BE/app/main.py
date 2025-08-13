@@ -1,7 +1,8 @@
 # app/main.py
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI
-from app.routers import terms
+from app.routers import public_terms
+from app.routers import admin_terms
 from app.db.base import Base
 from app.db.session import engine
 
@@ -29,7 +30,8 @@ app.add_middleware(
 )
 
 # 라우터 포함
-app.include_router(terms.router)
+app.include_router(public_terms.router)
+app.include_router(admin_terms.router)
 
 @app.get("/")
 def read_root():
