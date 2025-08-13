@@ -14,25 +14,34 @@ from openai import OpenAI
 from tqdm import tqdm
 import logging
 import argparse # [추가] 커맨드 라인 인자 처리를 위한 라이브러리
+from dotenv import load_dotenv
+#load_dotenv()
 
 # --- 기본 로깅 설정 ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # --- 설정 (Configuration) ---
-MODEL_PATH = "kobert_summarization_model.pth"
 BASE_MODEL_NAME = "skt/kobert-base-v1"
-DB_PATH = "terms.db"
 
 # (이전과 동일한 클래스 및 함수 정의는 생략)
 # ... BERTClassifier, BERTSumDataset, extract_key_sentences, extract_keywords, generate_gpt_summary ...
 class BERTClassifier(nn.Module):
     def __init__(self, bert, hidden_size=768, num_classes=2, dr_rate=None):
-        super(BERTClassifier, self).__init__(); self.bert = bert; self.classifier = nn.Linear(hidden_size, num_classes)
-        if dr_rate: self.dropout = nn.Dropout(p=dr_rate)
-    def forward(self, token_ids, attention_mask):
-        _, pooler_output = self.bert(input_ids=token_ids, attention_mask=attention_mask)
+        super().__init__()
+        self.bert = bert
+        self.classifier = nn.Linear(hidden_size, num_classes)
+        self.dr_rate = dr_rate
+        if dr_rate:
+            self.dropout = nn.Dropout(p=dr_rate)
+
+    def forward(self, input_ids, attention_mask, token_type_ids=None):
+        _, pooler_output = self.bert(input_ids=input_ids,
+                                 attention_mask=attention_mask,
+                                 token_type_ids=token_type_ids)
         out = self.dropout(pooler_output) if self.dr_rate and self.training else pooler_output
         return self.classifier(out)
+
+
 def extract_key_sentences(text: str, model: BERTClassifier, tokenizer, device, top_n: int = 3) -> list[str]:
     with torch.no_grad():
         sentences = kss.split_sentences(text)
@@ -67,16 +76,16 @@ def generate_gpt_summary(key_sentences: list[str], keywords: list[str], client: 
         logging.error(f"GPT API 호출 오류: {e}"); return " ".join(key_sentences)
 
 # --- [수정됨] DB 연동 함수 ---
-def get_all_terms(db_path: str):
+def get_all_terms(DB_PATH: str):
     """ DB에서 '모든' 약관을 불러오는 함수 """
-    with sqlite3.connect(db_path) as conn:
+    with sqlite3.connect(DB_PATH) as conn:
         cur = conn.cursor()
         cur.execute("SELECT id, title, content FROM terms")
         return cur.fetchall()
 
-def get_terms_by_ids(db_path: str, term_ids: list[int]):
+def get_terms_by_ids(DB_PATH: str, term_ids: list[int]):
     """ [추가됨] DB에서 '지정된 ID'의 약관들만 불러오는 함수 """
-    with sqlite3.connect(db_path) as conn:
+    with sqlite3.connect(DB_PATH) as conn:
         cur = conn.cursor()
         # SQL의 IN 연산자를 사용하여 여러 ID를 한 번에 조회
         placeholders = ','.join('?' for _ in term_ids)
@@ -84,9 +93,9 @@ def get_terms_by_ids(db_path: str, term_ids: list[int]):
         cur.execute(query, term_ids)
         return cur.fetchall()
 
-def save_summary_to_db(db_path: str, term_id: int, summary_text: str, keywords: list[str]):
+def save_summary_to_db(DB_PATH: str, term_id: int, summary_text: str, keywords: list[str]):
     keywords_str = ','.join(keywords)
-    with sqlite3.connect(db_path) as conn:
+    with sqlite3.connect(DB_PATH) as conn:
         cur = conn.cursor()
         cur.execute("""
             CREATE TABLE IF NOT EXISTS term_summaries (
@@ -109,6 +118,33 @@ def save_summary_to_db(db_path: str, term_id: int, summary_text: str, keywords: 
 # ========================================================================================
 if __name__ == "__main__":
     # --- [수정됨] 커맨드 라인 인자 파서 설정 ---
+    load_dotenv()
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+    PROJECT_ROOT = os.path.dirname(os.path.dirname(SCRIPT_DIR))
+    DOTENV_PATH = os.path.join(PROJECT_ROOT, '.env')
+
+    DB_URL = os.getenv("DATABASE_URL", "term.db")  # sqlite:./term.db
+    if DB_URL.startswith("sqlite:"):
+        DB_PATH = DB_URL.replace("sqlite:", "")      # ./term.db
+        DB_PATH = os.path.abspath(os.path.join(PROJECT_ROOT, DB_PATH))
+    else:
+        DB_PATH = os.path.abspath(DB_URL)
+
+    print("DB_PATH:", DB_PATH)
+
+    MODEL_PATH = os.path.join(SCRIPT_DIR, "kobert_summarization_model.pth")
+    
+    logging.info(f".env 파일을 로드했습니다.")
+    logging.info(f"DB 경로: {DB_PATH}")
+    logging.info(f"모델 경로: {MODEL_PATH}")
+
+    # db_url = os.getenv("DATABASE_URL")
+    # if not db_url:
+    #     raise ValueError(".env 파일에 DATABASE_URL이 설정되지 않았습니다.")
+    # DB_PATH = os.path.join(PROJECT_ROOT, db_url) 
+
+    #MODEL_PATH = os.path.join(SCRIPT_DIR, "kobert_summarization_model.pth")
+
     parser = argparse.ArgumentParser(description="약관 문서를 요약하고 키워드를 추출하여 DB에 저장하는 배치 스크립트")
     parser.add_argument(
         "--ids",
@@ -132,6 +168,7 @@ if __name__ == "__main__":
     except Exception as e:
         logging.error(f"모델 로딩 중 치명적 오류 발생: {e}")
         exit()
+    
 
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
