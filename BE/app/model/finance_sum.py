@@ -55,6 +55,14 @@ def extract_keywords(sentences_list: list[str], tagger) -> list[str]:
     meaningful_nouns = [n for n in nouns if len(n) > 1]
     if not meaningful_nouns: return []
     return list(Counter(meaningful_nouns).keys())
+
+def extract_keywords(sentences_list: list[str], tagger) -> list[str]:
+    full_text = " ".join(sentences_list)
+    nouns = tagger.nouns(full_text)
+    meaningful_nouns = [n for n in nouns if len(n) > 1]
+    return list(Counter(meaningful_nouns).keys())
+
+# --- GPT 요약 생성 ---
 def generate_gpt_summary(key_sentences: list[str], keywords: list[str], client: OpenAI) -> str:
     if not key_sentences: return ""
     prompt = f"""# 지시문
@@ -70,11 +78,13 @@ def generate_gpt_summary(key_sentences: list[str], keywords: list[str], client: 
 {', '.join(keywords)}
 # 최종 요약문 (3문장 이내):"""
     try:
-        completion = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}])
+        completion = client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": prompt}])
         return completion.choices[0].message.content.strip()
     except Exception as e:
-        logging.error(f"GPT API 호출 오류: {e}"); return " ".join(key_sentences)
-
+        logging.error(f"GPT API 호출 오류: {e}")
+        return " ".join(key_sentences)
+        
+    
 # --- [수정됨] DB 연동 함수 ---
 def get_all_terms(DB_PATH: str):
     """ DB에서 '모든' 약관을 불러오는 함수 """
@@ -94,25 +104,52 @@ def get_terms_by_ids(DB_PATH: str, term_ids: list[int]):
         return cur.fetchall()
 
 def save_summary_to_db(DB_PATH: str, term_id: int, summary_text: str, keywords: list[str]):
+    """
+    term_summaries 테이블에 요약 저장
+    revision_version은 동일 term_id 내에서 존재하는 버전을 기준으로 자동 생성
+    """
     keywords_str = ','.join(keywords)
+
     with sqlite3.connect(DB_PATH) as conn:
         cur = conn.cursor()
+        # 테이블 생성 (없으면)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS term_summaries (
-                term_id INTEGER PRIMARY KEY,
-                summary_text TEXT,
-                keywords TEXT,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                id               INTEGER      NOT NULL PRIMARY KEY AUTOINCREMENT,
+                term_id          INTEGER      NOT NULL REFERENCES terms (id) ON DELETE CASCADE,
+                revision_version VARCHAR(50)  NOT NULL,
+                summary_text     TEXT,
+                created_at       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                keywords         TEXT,
+                CONSTRAINT uq_term_revision UNIQUE(term_id, revision_version)
             )
         """)
-        cur.execute("""
-            INSERT INTO term_summaries (term_id, summary_text, keywords)
-            VALUES (?, ?, ?)
-            ON CONFLICT(term_id)
-            DO UPDATE SET summary_text=excluded.summary_text, keywords=excluded.keywords, updated_at=CURRENT_TIMESTAMP
-        """, (term_id, summary_text, keywords_str))
-        conn.commit()
+        cur.execute("CREATE INDEX IF NOT EXISTS ix_term_summaries_term_id ON term_summaries (term_id)")
 
+        # 기존 revision_version 조회
+        cur.execute("""
+            SELECT revision_version
+            FROM term_summaries
+            WHERE term_id = ?
+        """, (term_id,))
+        existing_versions = cur.fetchall()  # [('v1',), ('v2',), ...]
+
+        # 다음 버전 계산
+        if not existing_versions:
+            next_version = 1
+        else:
+            # 'v숫자' 형태에서 숫자만 뽑아 최대값 + 1
+            max_v = max(int(v[0].lstrip('v')) for v in existing_versions)
+            next_version = max_v + 1
+
+        revision_version = f"v{next_version}"
+
+        # 데이터 삽입
+        cur.execute("""
+            INSERT INTO term_summaries (term_id, revision_version, summary_text, keywords)
+            VALUES (?, ?, ?, ?)
+        """, (term_id, revision_version, summary_text, keywords_str))
+        conn.commit()
 # ========================================================================================
 # 4. 메인 실행 로직
 # ========================================================================================
@@ -187,8 +224,9 @@ if __name__ == "__main__":
         logging.info(f"총 {len(terms_to_process)}개의 모든 약관에 대해 배치 처리를 시작합니다.")
 
     # --- 3. 배치 처리 실행 ---
+    # --- 배치 처리 ---
     if not terms_to_process:
-        logging.warning("처리할 약관 데이터가 DB에 없습니다.")
+        logging.warning("처리할 약관 데이터가 없습니다.")
     else:
         for term_id, title, content in tqdm(terms_to_process, desc="전체 약관 요약 처리 중"):
             key_sentences = extract_key_sentences(content, summarization_model, tokenizer, device, top_n=3)
