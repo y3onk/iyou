@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:iyou_demo/theme/app_theme.dart';
 import 'signuplogin.dart';
 
+const bool kAdminMode = bool.fromEnvironment('ADMIN_MODE', defaultValue: false);
+
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
   @override
@@ -32,14 +34,22 @@ class _SplashScreenState extends State<SplashScreen>
     super.initState();
     Timer(const Duration(milliseconds: 1800), () {
       if (!mounted) return;
-      Navigator.of(context).pushReplacement(
+      if (kAdminMode) {
+        // 관리자 모드일 때는 관리자 화면으로 이동
+        // --dart-define=ADMIN_MODE=true 로 빌드 시 활성화
+        Navigator.of(context).pushReplacementNamed('/admin');
+      } else {
+        // 일반 사용자 모드로 이동
+        Navigator.of(context).pushReplacement(
         PageRouteBuilder(
           transitionDuration: const Duration(milliseconds: 450),
           pageBuilder: (_, __, ___) => const SignupIdPhoneScreen(),
           transitionsBuilder: (_, a, __, child) =>
               FadeTransition(opacity: a, child: child),
         ),
-      );
+        );
+      }
+      
     });
   }
 

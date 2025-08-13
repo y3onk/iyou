@@ -75,7 +75,7 @@ class _TermsDetailScreenState extends State<TermsDetailScreen> {
     });
     try {
       final id = _resolvedTermId;
-      final data = await _api.get('/terms/$id');
+      final data = await _api.get('/public/terms/$id');
       final content = (data['content'] ?? '') as String;
 
       // (선택) BE가 clauses 배열을 주면 그걸 우선 사용
@@ -104,7 +104,7 @@ class _TermsDetailScreenState extends State<TermsDetailScreen> {
     setState(() => _loading = true);
     try {
       final id = _resolvedTermId;
-      final data = await _api.get('/terms/$id/summary');
+      final data = await _api.get('/public/terms/$id/summary');
 
       final docTitle = (data['title'] ?? _resolvedTitle) as String;
 
