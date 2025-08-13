@@ -99,7 +99,7 @@ class _SplashScreenState extends State<SplashScreen>
 
                       // 텍스트형 로고 PNG (iyou)
                       Image.asset(
-                        'images/iyou_text_logo.png',
+                        'assets/images/iyou_text_logo.png',
                         height: 60,
                         fit: BoxFit.contain,
                       ),
