@@ -27,7 +27,7 @@ def read_term_detail(term_id: int):
 @router.get("/{term_id}/summary", response_model=TermSummary)
 def read_term_summary(term_id: int):
     """특정 약관의 AI 요약본 (public: 활성 항목만)"""
-    summary = term_service.get_term_summary_by_id(term_id, only_active=True)
-    if not summary:
+    summary = term_service.get_term_summary_by_id(term_id)
+    if summary is None:
         raise HTTPException(status_code=404, detail="해당 ID의 약관을 찾을 수 없습니다.")
     return summary
