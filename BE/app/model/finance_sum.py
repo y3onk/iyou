@@ -1,0 +1,162 @@
+# batch_process_summaries.py (ID별 처리 기능 추가 최종 버전)
+
+import os
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import kss
+import sqlite3
+from transformers import BertModel
+from kobert_tokenizer import KoBERTTokenizer
+from konlpy.tag import Okt # Mecab 대신 Okt 사용
+from collections import Counter
+from openai import OpenAI
+from tqdm import tqdm
+import logging
+import argparse # [추가] 커맨드 라인 인자 처리를 위한 라이브러리
+
+# --- 기본 로깅 설정 ---
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# --- 설정 (Configuration) ---
+MODEL_PATH = "kobert_summarization_model.pth"
+BASE_MODEL_NAME = "skt/kobert-base-v1"
+DB_PATH = "terms.db"
+
+# (이전과 동일한 클래스 및 함수 정의는 생략)
+# ... BERTClassifier, BERTSumDataset, extract_key_sentences, extract_keywords, generate_gpt_summary ...
+class BERTClassifier(nn.Module):
+    def __init__(self, bert, hidden_size=768, num_classes=2, dr_rate=None):
+        super(BERTClassifier, self).__init__(); self.bert = bert; self.classifier = nn.Linear(hidden_size, num_classes)
+        if dr_rate: self.dropout = nn.Dropout(p=dr_rate)
+    def forward(self, token_ids, attention_mask):
+        _, pooler_output = self.bert(input_ids=token_ids, attention_mask=attention_mask)
+        out = self.dropout(pooler_output) if self.dr_rate and self.training else pooler_output
+        return self.classifier(out)
+def extract_key_sentences(text: str, model: BERTClassifier, tokenizer, device, top_n: int = 3) -> list[str]:
+    with torch.no_grad():
+        sentences = kss.split_sentences(text)
+        if not sentences: return []
+        inputs = tokenizer(sentences, padding=True, truncation=True, return_tensors="pt", max_length=128).to(device)
+        outputs = model(**inputs); probs = F.softmax(outputs, dim=1); core_probs = probs[:, 1].cpu().numpy()
+        sorted_indices = core_probs.argsort()[::-1]
+        return [sentences[idx] for idx in sorted_indices[:top_n]]
+def extract_keywords(sentences_list: list[str], tagger) -> list[str]:
+    full_text = " ".join(sentences_list); nouns = tagger.nouns(full_text)
+    meaningful_nouns = [n for n in nouns if len(n) > 1]
+    if not meaningful_nouns: return []
+    return list(Counter(meaningful_nouns).keys())
+def generate_gpt_summary(key_sentences: list[str], keywords: list[str], client: OpenAI) -> str:
+    if not key_sentences: return ""
+    prompt = f"""# 지시문
+당신은 금융 및 법률 약관 전문가입니다. 1차 AI가 원문에서 추출한 아래 '핵심 문장'과 '핵심 키워드'를 바탕으로, 최종 사용자가 이해하기 쉬운 3문장 이내의 완결된 요약문을 생성해주세요.
+# 제약 조건
+- 반드시 '핵심 문장'에 있는 내용만을 기반으로 요약해야 합니다.
+- '핵심 키워드'가 자연스럽게 요약문에 포함되도록 하세요.
+- 의미를 절대 변경하거나 없는 내용을 추가해서는 안 됩니다.
+- 원문의 전문적인 어휘를 최대한 유지하되, 문법적으로 자연스럽게 연결해주세요.
+# 핵심 문장
+{'- ' + '\n- '.join(key_sentences)}
+# 핵심 키워드
+{', '.join(keywords)}
+# 최종 요약문 (3문장 이내):"""
+    try:
+        completion = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}])
+        return completion.choices[0].message.content.strip()
+    except Exception as e:
+        logging.error(f"GPT API 호출 오류: {e}"); return " ".join(key_sentences)
+
+# --- [수정됨] DB 연동 함수 ---
+def get_all_terms(db_path: str):
+    """ DB에서 '모든' 약관을 불러오는 함수 """
+    with sqlite3.connect(db_path) as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT id, title, content FROM terms")
+        return cur.fetchall()
+
+def get_terms_by_ids(db_path: str, term_ids: list[int]):
+    """ [추가됨] DB에서 '지정된 ID'의 약관들만 불러오는 함수 """
+    with sqlite3.connect(db_path) as conn:
+        cur = conn.cursor()
+        # SQL의 IN 연산자를 사용하여 여러 ID를 한 번에 조회
+        placeholders = ','.join('?' for _ in term_ids)
+        query = f"SELECT id, title, content FROM terms WHERE id IN ({placeholders})"
+        cur.execute(query, term_ids)
+        return cur.fetchall()
+
+def save_summary_to_db(db_path: str, term_id: int, summary_text: str, keywords: list[str]):
+    keywords_str = ','.join(keywords)
+    with sqlite3.connect(db_path) as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS term_summaries (
+                term_id INTEGER PRIMARY KEY,
+                summary_text TEXT,
+                keywords TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cur.execute("""
+            INSERT INTO term_summaries (term_id, summary_text, keywords)
+            VALUES (?, ?, ?)
+            ON CONFLICT(term_id)
+            DO UPDATE SET summary_text=excluded.summary_text, keywords=excluded.keywords, updated_at=CURRENT_TIMESTAMP
+        """, (term_id, summary_text, keywords_str))
+        conn.commit()
+
+# ========================================================================================
+# 4. 메인 실행 로직
+# ========================================================================================
+if __name__ == "__main__":
+    # --- [수정됨] 커맨드 라인 인자 파서 설정 ---
+    parser = argparse.ArgumentParser(description="약관 문서를 요약하고 키워드를 추출하여 DB에 저장하는 배치 스크립트")
+    parser.add_argument(
+        "--ids",
+        nargs="+",  # 여러 개의 ID를 받을 수 있도록 설정
+        type=int,
+        help="처리할 특정 약관 ID 목록. 지정하지 않으면 DB의 모든 약관을 처리합니다."
+    )
+    args = parser.parse_args()
+
+    # --- 1. AI 모델 및 리소스 로드 ---
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    logging.info(f"Using device: {device}")
+    
+    try:
+        tokenizer = KoBERTTokenizer.from_pretrained(BASE_MODEL_NAME)
+        bertmodel = BertModel.from_pretrained(BASE_MODEL_NAME, return_dict=False)
+        summarization_model = BERTClassifier(bertmodel, num_classes=2, dr_rate=0.5).to(device)
+        summarization_model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
+        summarization_model.eval()
+        logging.info("✅ 최종 요약 모델 로드 완료.")
+    except Exception as e:
+        logging.error(f"모델 로딩 중 치명적 오류 발생: {e}")
+        exit()
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        logging.warning("OPENAI_API_KEY 환경 변수가 설정되지 않았습니다. GPT 요약은 추출 문장 조합으로 대체됩니다.")
+    gpt_client = OpenAI(api_key=api_key)
+    okt_tagger = Okt()
+
+    # --- [수정됨] 2. 인자에 따라 DB에서 약관 원문 불러오기 ---
+    if args.ids:
+        # --ids 인자가 주어졌으면, 해당 ID의 약관만 불러오기
+        terms_to_process = get_terms_by_ids(DB_PATH, args.ids)
+        logging.info(f"지정된 {len(terms_to_process)}개의 약관에 대해 처리를 시작합니다: {args.ids}")
+    else:
+        # --ids 인자가 없으면, 모든 약관 불러오기
+        terms_to_process = get_all_terms(DB_PATH)
+        logging.info(f"총 {len(terms_to_process)}개의 모든 약관에 대해 배치 처리를 시작합니다.")
+
+    # --- 3. 배치 처리 실행 ---
+    if not terms_to_process:
+        logging.warning("처리할 약관 데이터가 DB에 없습니다.")
+    else:
+        for term_id, title, content in tqdm(terms_to_process, desc="전체 약관 요약 처리 중"):
+            key_sentences = extract_key_sentences(content, summarization_model, tokenizer, device, top_n=3)
+            keywords = extract_keywords(key_sentences, okt_tagger)
+            final_summary = generate_gpt_summary(key_sentences, keywords, gpt_client)
+            save_summary_to_db(DB_PATH, term_id, final_summary, keywords)
+
+    logging.info("🎉 작업이 성공적으로 완료되었습니다.")
